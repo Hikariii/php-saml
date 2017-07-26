@@ -1,27 +1,12 @@
 <?php
 
-namespace Saml\Message\Xml\Validator;
+namespace Saml\Message\Validator;
 
 use Saml\Exception\ValidationError;
-use Saml\Settings;
 use Saml\Utils;
 
-class LogoutRequestValidator
+class LogoutRequestValidator extends AbstractValidator
 {
-    /**
-     * @var Settings
-     */
-    protected $samlSettings;
-
-    /**
-     * Builder constructor.
-     * @param Settings $samlSettings
-     */
-    public function __construct(Settings $samlSettings)
-    {
-        $this->samlSettings = $samlSettings;
-    }
-
     /**
      * Checks if the Logout Request recieved is valid.
      *

@@ -2,6 +2,8 @@
 
 namespace Saml\Message\Xml;
 
+use RobRichards\XMLSecLibs\XMLSecEnc;
+use RobRichards\XMLSecLibs\XMLSecurityKey;
 use Saml\Settings;
 use Saml\Utils;
 
@@ -21,61 +23,55 @@ class Builder
         $this->samlSettings = $samlSettings;
     }
 
+
     /**
-     * @param $id
+     * Generates a nameID.
+     *
+     * @param string      $value  fingerprint
+     * @param string      $spnq   SP Name Qualifier
+     * @param string      $format SP Format
+     * @param string|null $cert   IdP Public cert to encrypt the nameID
+     *
+     * @return string $nameIDElement DOMElement | XMLSec nameID
      */
-    public function buildLogoutRequest($uniqueRequestId)
+    public static function generateNameId($value, $spnq, $format, $cert = null)
     {
-        $spData = $this->samlSettings->getSPData();
-        $idpData = $this->samlSettings->getIdPData();
-        $security = $this->samlSettings->getSecurityData();
+        $doc = new \DOMDocument();
 
-        $issueInstant = Utils::parseTime2SAML(time());
-
-        $cert = null;
-        if (isset($security['nameIdEncrypted']) && $security['nameIdEncrypted']) {
-            $existsMultiX509Enc = isset($idpData['x509certMulti']) && isset($idpData['x509certMulti']['encryption']) && !empty($idpData['x509certMulti']['encryption']);
-
-            if ($existsMultiX509Enc) {
-                $cert = $idpData['x509certMulti']['encryption'][0];
-            } else {
-                $cert = $idpData['x509cert'];
-            }
+        $nameId = $doc->createElement('saml:NameID');
+        if (isset($spnq)) {
+            $nameId->setAttribute('SPNameQualifier', $spnq);
         }
+        $nameId->setAttribute('Format', $format);
+        $nameId->appendChild($doc->createTextNode($value));
 
-        if (!empty($nameId)) {
-            if (empty($nameIdFormat)) {
-                $nameIdFormat = $spData['NameIDFormat'];
-            }
-            $spNameQualifier = null;
+        $doc->appendChild($nameId);
+
+        if (!empty($cert)) {
+            $seckey = new XMLSecurityKey(XMLSecurityKey::RSA_1_5, array('type'=>'public'));
+            $seckey->loadKey($cert);
+
+            $enc = new XMLSecEnc();
+            $enc->setNode($nameId);
+            $enc->type = XMLSecEnc::Element;
+
+            $symmetricKey = new XMLSecurityKey(XMLSecurityKey::AES128_CBC);
+            $symmetricKey->generateSessionKey();
+            $enc->encryptKey($seckey, $symmetricKey);
+
+            $encryptedData = $enc->encryptNode($symmetricKey);
+
+            $newdoc = new \DOMDocument();
+
+            $encryptedID = $newdoc->createElement('saml:EncryptedID');
+
+            $newdoc->appendChild($encryptedID);
+
+            $encryptedID->appendChild($encryptedID->ownerDocument->importNode($encryptedData, true));
+
+            return $newdoc->saveXML($encryptedID);
         } else {
-            $nameId = $idpData['entityId'];
-            $nameIdFormat = Constants::NAMEID_ENTITY;
-            $spNameQualifier = $spData['entityId'];
+            return $doc->saveXML($nameId);
         }
-
-        $nameIdObj = Utils::generateNameId(
-            $nameId,
-            $spNameQualifier,
-            $nameIdFormat,
-            $cert
-        );
-
-        $sessionIndexStr = isset($sessionIndex) ? "<samlp:SessionIndex>{$sessionIndex}</samlp:SessionIndex>" : "";
-
-        $spEntityId = htmlspecialchars($spData['entityId'], ENT_QUOTES);
-        return <<<LOGOUTREQUEST
-<samlp:LogoutRequest
-    xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol"
-    xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion"
-    ID="{$uniqueRequestId}"
-    Version="2.0"
-    IssueInstant="{$issueInstant}"
-    Destination="{$idpData['singleLogoutService']['url']}">
-    <saml:Issuer>{$spEntityId}</saml:Issuer>
-    {$nameIdObj}
-    {$sessionIndexStr}
-</samlp:LogoutRequest>
-LOGOUTREQUEST;
     }
 }

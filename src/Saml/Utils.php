@@ -830,35 +830,6 @@ class Utils
         return $expireTime;
     }
 
-
-    /**
-     * Extracts nodes from the DOMDocument.
-     *
-     * @param \DOMDocument $dom     The DOMDocument
-     * @param string      $query   Xpath Expresion
-     * @param \DomElement  $context Context Node (DomElement)
-     *
-     * @return \DOMNodeList The queried nodes
-     */
-    public static function query(\DomDocument $dom, $query, \DOMElement $context = null)
-    {
-        $xpath = new \DOMXPath($dom);
-        $xpath->registerNamespace('samlp', Constants::NS_SAMLP);
-        $xpath->registerNamespace('saml', Constants::NS_SAML);
-        $xpath->registerNamespace('ds', Constants::NS_DS);
-        $xpath->registerNamespace('xenc', Constants::NS_XENC);
-        $xpath->registerNamespace('xsi', Constants::NS_XSI);
-        $xpath->registerNamespace('xs', Constants::NS_XS);
-        $xpath->registerNamespace('md', Constants::NS_MD);
-
-        if (isset($context)) {
-            $res = $xpath->query($query, $context);
-        } else {
-            $res = $xpath->query($query);
-        }
-        return $res;
-    }
-
     /**
      * Checks if the session is started or not.
      *
@@ -947,105 +918,6 @@ class Utils
         $formatedFingerprint = str_replace(':', '', $fingerprint);
         $formatedFingerprint = strtolower($formatedFingerprint);
         return $formatedFingerprint;
-    }
-
-    /**
-     * Generates a nameID.
-     *
-     * @param string      $value  fingerprint
-     * @param string      $spnq   SP Name Qualifier
-     * @param string      $format SP Format
-     * @param string|null $cert   IdP Public cert to encrypt the nameID
-     *
-     * @return string $nameIDElement DOMElement | XMLSec nameID
-     */
-    public static function generateNameId($value, $spnq, $format, $cert = null)
-    {
-
-        $doc = new \DOMDocument();
-
-        $nameId = $doc->createElement('saml:NameID');
-        if (isset($spnq)) {
-            $nameId->setAttribute('SPNameQualifier', $spnq);
-        }
-        $nameId->setAttribute('Format', $format);
-        $nameId->appendChild($doc->createTextNode($value));
-
-        $doc->appendChild($nameId);
-
-        if (!empty($cert)) {
-            $seckey = new XMLSecurityKey(XMLSecurityKey::RSA_1_5, array('type'=>'public'));
-            $seckey->loadKey($cert);
-
-            $enc = new XMLSecEnc();
-            $enc->setNode($nameId);
-            $enc->type = XMLSecEnc::Element;
-
-            $symmetricKey = new XMLSecurityKey(XMLSecurityKey::AES128_CBC);
-            $symmetricKey->generateSessionKey();
-            $enc->encryptKey($seckey, $symmetricKey);
-
-            $encryptedData = $enc->encryptNode($symmetricKey);
-
-            $newdoc = new \DOMDocument();
-
-            $encryptedID = $newdoc->createElement('saml:EncryptedID');
-
-            $newdoc->appendChild($encryptedID);
-
-            $encryptedID->appendChild($encryptedID->ownerDocument->importNode($encryptedData, true));
-
-            return $newdoc->saveXML($encryptedID);
-        } else {
-            return $doc->saveXML($nameId);
-        }
-    }
-
-
-    /**
-     * Gets Status from a Response.
-     *
-     * @param \DOMDocument $dom The Response as XML
-     *
-     * @return array $status The Status, an array with the code and a message.
-     *
-     * @throws Exception\ValidationError
-     */
-    public static function getStatus(\DOMDocument $dom)
-    {
-        $status = array();
-
-        $statusEntry = self::query($dom, '/samlp:Response/samlp:Status');
-        if ($statusEntry->length != 1) {
-            throw new Exception\ValidationError(
-                "Missing Status on response",
-                Exception\ValidationError::MISSING_STATUS
-            );
-        }
-
-        $codeEntry = self::query($dom, '/samlp:Response/samlp:Status/samlp:StatusCode', $statusEntry->item(0));
-        if ($codeEntry->length != 1) {
-            throw new Exception\ValidationError(
-                "Missing Status Code on response",
-                Exception\ValidationError::MISSING_STATUS_CODE
-            );
-        }
-        $code = $codeEntry->item(0)->getAttribute('Value');
-        $status['code'] = $code;
-
-        $status['msg'] = '';
-        $messageEntry = self::query($dom, '/samlp:Response/samlp:Status/samlp:StatusMessage', $statusEntry->item(0));
-        if ($messageEntry->length == 0) {
-            $subCodeEntry = self::query($dom, '/samlp:Response/samlp:Status/samlp:StatusCode/samlp:StatusCode', $statusEntry->item(0));
-            if ($subCodeEntry->length == 1) {
-                $status['msg'] = $subCodeEntry->item(0)->getAttribute('Value');
-            }
-        } else if ($messageEntry->length == 1) {
-            $msg = $messageEntry->item(0)->textContent;
-            $status['msg'] = $msg;
-        }
-
-        return $status;
     }
 
     /**
@@ -1162,37 +1034,6 @@ class Utils
         }
 
         return $decryptedElement;
-    }
-
-     /**
-      * Converts a XMLSecurityKey to the correct algorithm.
-      *
-      * @param XMLSecurityKey $key The key.
-      * @param string $algorithm The desired algorithm.
-      * @param string $type Public or private key, defaults to public.
-      *
-      * @return XMLSecurityKey The new key.
-      *
-      * @throws \Exception
-      */
-    public static function castKey(XMLSecurityKey $key, $algorithm, $type = 'public')
-    {
-        assert('is_string($algorithm)');
-        assert('$type === "public" || $type === "private"');
-        // do nothing if algorithm is already the type of the key
-        if ($key->type === $algorithm) {
-            return $key;
-        }
-        $keyInfo = openssl_pkey_get_details($key->key);
-        if ($keyInfo === false) {
-            throw new \Exception('Unable to get key details from XMLSecurityKey.');
-        }
-        if (!isset($keyInfo['key'])) {
-            throw new \Exception('Missing key in public key details.');
-        }
-        $newKey = new XMLSecurityKey($algorithm, array('type'=>$type));
-        $newKey->loadKey($keyInfo['key']);
-        return $newKey;
     }
 
     /**
